@@ -1,0 +1,8 @@
+{
+  "uuid": "lyrics-on-topbar@gnome.com",
+  "name": "Lyrics On Top",
+  "description": "Display sptlrx lyrics in GNOME top bar",
+  "version": 1,
+  "shell-version": ["46", "47", "48"],
+  "url": "https://LyricsOnTop.com"
+}
