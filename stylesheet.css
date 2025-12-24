@@ -1,0 +1,17 @@
+/* stylesheet.css */
+.panel-status-menu-box.my-extension-label {
+    font-family: "Noto Sans", sans-serif; /* GNOME 时钟字体 */
+    font-weight: 400;
+    font-size: 11px;
+}
+
+.lyrics-floating-box {
+    background-color: rgba(0, 0, 0, 0.65);
+    border-radius: 999px;
+    padding: 6px 14px;
+}
+
+.lyrics-floating-label {
+    color: white;
+    font-size: 11pt;
+}
