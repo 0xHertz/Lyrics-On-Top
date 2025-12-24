@@ -159,7 +159,6 @@ export default class LyricsExtension extends Extension {
           if (!changed.PlaybackStatus) return;
 
           const status = changed.PlaybackStatus.deep_unpack();
-          log(`[LyricsExtension] PropertiesChanged: ${status}`);
 
           this._applyPlaybackStatus(status);
         } catch (e) {
@@ -224,9 +223,6 @@ export default class LyricsExtension extends Extension {
   }
   _applyPlaybackStatus(status) {
     const paused = status !== "Playing";
-    log(
-      `[LyricsExtension] _applyPlaybackStatus: status=${status}, paused=${paused}, prev_isPaused=${this._isPaused}`,
-    );
     if (paused !== this._isPaused) {
       this._isPaused = paused;
       this._updateVisibility();
