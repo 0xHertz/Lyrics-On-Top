@@ -10,7 +10,7 @@ import * as Mpris from "resource:///org/gnome/shell/ui/mpris.js";
 export default class LyricsExtension extends Extension {
   enable() {
     const cssFile = Gio.File.new_for_path(`${this.path}/stylesheet.css`);
-    this._styleProvider = St.ThemeContext.get_for_stage(global.stage)
+    St.ThemeContext.get_for_stage(global.stage)
       .get_theme()
       .load_stylesheet(cssFile);
     this._label = new St.Label({
@@ -124,11 +124,10 @@ export default class LyricsExtension extends Extension {
       this._label.destroy();
       this._label = null;
     }
-    if (this._styleProvider) {
-      const cssFile = Gio.File.new_for_path(`${this.path}/stylesheet.css`);
-      this._styleProvider.unload_stylesheet(cssFile);
-      this._styleProvider = null;
-    }
+    const cssFile = Gio.File.new_for_path(`${this.path}/stylesheet.css`);
+    St.ThemeContext.get_for_stage(global.stage)
+      .get_theme()
+      .unload_stylesheet(cssFile);
     if (this._mprisProxy && this._mprisSignalId) {
       this._mprisProxy.disconnect(this._mprisSignalId);
     }
