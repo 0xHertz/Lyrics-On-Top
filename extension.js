@@ -5,6 +5,7 @@ import Clutter from "gi://Clutter";
 
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
+import * as Mpris from "resource:///org/gnome/shell/ui/mpris.js";
 
 export default class LyricsExtension extends Extension {
   enable() {
@@ -22,6 +23,8 @@ export default class LyricsExtension extends Extension {
     Main.panel._leftBox.insert_child_at_index(this._label, 2);
     // === 新增：创建浮动胶囊 ===
     this._createFloatingLyrics();
+    this._mprisProxy = null;
+    this._mprisSignalId = null;
     // === 新增：监听 Top Bar 可见性 ===
 
     this._panelSignals = [];
@@ -32,9 +35,15 @@ export default class LyricsExtension extends Extension {
       panelBox.connect("notify::visible", () => this._updateVisibility()),
       panelBox.connect("notify::height", () => this._updateVisibility()),
       panelBox.connect("notify::opacity", () => this._updateVisibility()),
+      panelBox.connect("notify::allocation", () => this._updateVisibility()),
     );
 
     const overview = Main.overview;
+    const controls = Main.overview._overview.controls;
+    this._controlsSignals = controls.connect("notify::progress", () =>
+      this._updateVisibility(),
+    );
+
     this._overviewSignals = [];
     this._overviewSignals = [
       overview.connect("showing", () => this._updateVisibility()),
@@ -61,17 +70,40 @@ export default class LyricsExtension extends Extension {
     });
 
     this._startLyrics();
+    this._enableMpris();
   }
 
   disable() {
     if (this._panelSignals) {
       const panelBox = Main.layoutManager.panelBox;
-      this._panelSignals.forEach((id) => panelBox.disconnect(id));
+      this._panelSignals.forEach((id) => {
+        try {
+          panelBox.disconnect(id);
+        } catch (e) {
+          // signal 已不存在，忽略
+        }
+      });
       this._panelSignals = null;
     }
     if (this._overviewSignals) {
-      this._overviewSignals.forEach((id) => Main.overview.disconnect(id));
+      const overview = Main.overview;
+      this._overviewSignals.forEach((id) => {
+        try {
+          overview.disconnect(id);
+        } catch (e) {
+          // signal 已不存在，忽略
+        }
+      });
       this._overviewSignals = null;
+    }
+    if (this._controlsSignals) {
+      const controls = Main.overview._overview.controls;
+      try {
+        controls.disconnect(this._controlsSignals);
+      } catch (e) {
+        // signal 已不存在，忽略
+      }
+      this._controlsSignals = null;
     }
     if (this._startupTimeoutId) {
       GLib.source_remove(this._startupTimeoutId);
@@ -97,6 +129,108 @@ export default class LyricsExtension extends Extension {
       this._styleProvider.unload_stylesheet(cssFile);
       this._styleProvider = null;
     }
+    if (this._mprisProxy && this._mprisSignalId) {
+      this._mprisProxy.disconnect(this._mprisSignalId);
+    }
+    this._mprisProxy = null;
+    this._mprisSignalId = null;
+    if (this._mprisSubId) {
+      Gio.DBus.session.signal_unsubscribe(this._mprisSubId);
+      this._mprisSubId = null;
+    }
+  }
+
+  _enableMpris() {
+    this._isPaused = false;
+
+    this._mprisSubId = Gio.DBus.session.signal_subscribe(
+      null, // 任意播放器
+      "org.freedesktop.DBus.Properties",
+      "PropertiesChanged",
+      "/org/mpris/MediaPlayer2",
+      null,
+      Gio.DBusSignalFlags.NONE,
+      (_conn, _sender, _path, _iface, _signal, params) => {
+        try {
+          const [iface, changed] = params.deep_unpack();
+
+          if (iface !== "org.mpris.MediaPlayer2.Player") return;
+
+          if (!changed.PlaybackStatus) return;
+
+          const status = changed.PlaybackStatus.deep_unpack();
+          log(`[LyricsExtension] PropertiesChanged: ${status}`);
+
+          this._applyPlaybackStatus(status);
+        } catch (e) {
+          logError(e);
+        }
+      },
+    );
+
+    // 启动时主动查一次
+    this._queryPlaybackStatus();
+  }
+
+  _queryPlaybackStatus() {
+    Gio.DBus.session.call(
+      "org.freedesktop.DBus",
+      "/org/freedesktop/DBus",
+      "org.freedesktop.DBus",
+      "ListNames",
+      null,
+      null,
+      Gio.DBusCallFlags.NONE,
+      -1,
+      null,
+      (conn, res) => {
+        try {
+          const ret = conn.call_finish(res);
+          const [names] = ret.deep_unpack();
+
+          const players = names.filter((n) =>
+            n.startsWith("org.mpris.MediaPlayer2."),
+          );
+
+          for (const busName of players) {
+            Gio.DBus.session.call(
+              busName,
+              "/org/mpris/MediaPlayer2",
+              "org.freedesktop.DBus.Properties",
+              "Get",
+              new GLib.Variant("(ss)", [
+                "org.mpris.MediaPlayer2.Player",
+                "PlaybackStatus",
+              ]),
+              null,
+              Gio.DBusCallFlags.NONE,
+              -1,
+              null,
+              (c, r) => {
+                try {
+                  const v = c.call_finish(r);
+                  const status = v.deep_unpack()[0];
+
+                  if (status === "Playing" || status === "Paused") {
+                    this._applyPlaybackStatus(status);
+                  }
+                } catch {}
+              },
+            );
+          }
+        } catch {}
+      },
+    );
+  }
+  _applyPlaybackStatus(status) {
+    const paused = status !== "Playing";
+    log(
+      `[LyricsExtension] _applyPlaybackStatus: status=${status}, paused=${paused}, prev_isPaused=${this._isPaused}`,
+    );
+    if (paused !== this._isPaused) {
+      this._isPaused = paused;
+      this._updateVisibility();
+    }
   }
 
   _startLyrics() {
@@ -118,7 +252,13 @@ export default class LyricsExtension extends Extension {
     }
   }
   _isTopBarActuallyVisible() {
-    if (Main.overview._shown || Main.overview.animationInProgress) {
+    const controls = Main.overview?._overview?.controls;
+
+    if (
+      Main.overview._shown ||
+      Main.overview.animationInProgress ||
+      (controls && controls.progress > 0)
+    ) {
       return true;
     }
     const panelBox = Main.layoutManager.panelBox;
@@ -126,6 +266,11 @@ export default class LyricsExtension extends Extension {
   }
 
   _updateVisibility() {
+    if (this._isPaused) {
+      this._floatingBox.hide();
+      this._label.hide();
+      return;
+    }
     const topBarVisible = this._isTopBarActuallyVisible();
     if (topBarVisible) {
       this._label.show();
