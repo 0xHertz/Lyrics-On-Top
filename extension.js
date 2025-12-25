@@ -69,6 +69,8 @@ export default class LyricsExtension extends Extension {
     this._startLyrics();
     this._enableMpris();
     this._enableMpris2();
+    // 启动时主动查一次
+    this._queryPlaybackStatus();
   }
 
   disable() {
@@ -159,21 +161,16 @@ export default class LyricsExtension extends Extension {
           if (!changed.PlaybackStatus) return;
 
           const status = changed.PlaybackStatus.deep_unpack();
-
           this._applyPlaybackStatus(status);
         } catch (e) {
           logError(e);
         }
       },
     );
-
-    // 启动时主动查一次
-    this._queryPlaybackStatus();
   }
   _enableMpris2() {
     this._hasPlayer = false;
     this._playerNums = 0;
-    this._queryPlaybackStatus();
 
     // 监听 NameOwnerChanged：捕获新播放器启动或退出
     this._nameOwnerSubId = Gio.DBus.session.signal_subscribe(
@@ -191,7 +188,31 @@ export default class LyricsExtension extends Extension {
           // 新播放器启动
           this._hasPlayer = true;
           this._playerNums = this._playerNums + 1;
-          this._updateVisibility();
+          Gio.DBus.session.call(
+            name,
+            "/org/mpris/MediaPlayer2",
+            "org.freedesktop.DBus.Properties",
+            "Get",
+            new GLib.Variant("(ss)", [
+              "org.mpris.MediaPlayer2.Player",
+              "PlaybackStatus",
+            ]),
+            null,
+            Gio.DBusCallFlags.NONE,
+            -1,
+            null,
+            (c, r) => {
+              try {
+                const v = c.call_finish(r);
+                const status = v.deep_unpack()[0].deep_unpack();
+                log(`_enableMpris2-start-${status}`);
+
+                if (status === "Playing" || status === "Paused") {
+                  this._applyPlaybackStatus(status);
+                }
+              } catch {}
+            },
+          );
         } else {
           // 播放器退出
           this._playerNums = this._playerNums - 1;
@@ -243,7 +264,7 @@ export default class LyricsExtension extends Extension {
               (c, r) => {
                 try {
                   const v = c.call_finish(r);
-                  const status = v.deep_unpack()[0];
+                  const status = v.deep_unpack()[0].deep_unpack();
 
                   if (status === "Playing" || status === "Paused") {
                     this._applyPlaybackStatus(status);
