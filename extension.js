@@ -71,6 +71,7 @@ export default class LyricsExtension extends Extension {
 
     this._startLyrics();
     this._enableMpris();
+    this._enableMpris2();
   }
 
   disable() {
@@ -169,6 +170,38 @@ export default class LyricsExtension extends Extension {
     // 启动时主动查一次
     this._queryPlaybackStatus();
   }
+  _enableMpris2() {
+    this._hasPlayer = false;
+    this._playerNums = 0;
+
+    // 监听 NameOwnerChanged：捕获新播放器启动或退出
+    this._nameOwnerSubId = Gio.DBus.session.signal_subscribe(
+      "org.freedesktop.DBus",
+      "org.freedesktop.DBus",
+      "NameOwnerChanged",
+      "/org/freedesktop/DBus",
+      null,
+      Gio.DBusSignalFlags.NONE,
+      (_conn, _sender, _path, _iface, _signal, params) => {
+        const [name, oldOwner, newOwner] = params.deep_unpack();
+        if (!name.startsWith("org.mpris.MediaPlayer2.")) return;
+
+        if (newOwner) {
+          // 新播放器启动
+          this._hasPlayer = true;
+          this._playerNums = this._playerNums + 1;
+          this._updateVisibility();
+        } else {
+          // 播放器退出
+          this._playerNums = this._playerNums - 1;
+          if (this._playerNums === 0) {
+            this._hasPlayer = false;
+          }
+          this._updateVisibility();
+        }
+      },
+    );
+  }
 
   _queryPlaybackStatus() {
     Gio.DBus.session.call(
@@ -259,11 +292,16 @@ export default class LyricsExtension extends Extension {
     const panelBox = Main.layoutManager.panelBox;
     return panelBox.visible && panelBox.height > 0 && panelBox.opacity > 0;
   }
+  _clearLyrics() {
+    if (this._label) this._label.set_text("");
+    if (this._floatingLabel) this._floatingLabel.set_text("");
+  }
 
   _updateVisibility() {
-    if (this._isPaused) {
+    if (!this._hasPlayer || this._isPaused) {
       this._floatingBox.hide();
       this._label.hide();
+      this._clearLyrics(); // 新增
       return;
     }
     const topBarVisible = this._isTopBarActuallyVisible();
