@@ -173,6 +173,7 @@ export default class LyricsExtension extends Extension {
   _enableMpris2() {
     this._hasPlayer = false;
     this._playerNums = 0;
+    this._queryPlaybackStatus();
 
     // 监听 NameOwnerChanged：捕获新播放器启动或退出
     this._nameOwnerSubId = Gio.DBus.session.signal_subscribe(
@@ -224,6 +225,8 @@ export default class LyricsExtension extends Extension {
           );
 
           for (const busName of players) {
+            this._hasPlayer = true;
+            this._playerNums = this._playerNums + 1;
             Gio.DBus.session.call(
               busName,
               "/org/mpris/MediaPlayer2",
@@ -281,7 +284,7 @@ export default class LyricsExtension extends Extension {
   }
   _isTopBarActuallyVisible() {
     const controls = Main.overview?._overview?.controls;
-
+    this._queryPlaybackStatus();
     if (
       Main.overview._shown ||
       Main.overview.animationInProgress ||
@@ -293,10 +296,16 @@ export default class LyricsExtension extends Extension {
     return panelBox.visible && panelBox.height > 0 && panelBox.opacity > 0;
   }
   _clearLyrics() {
-    if (this._label) this._label.set_text("");
-    if (this._floatingLabel) this._floatingLabel.set_text("");
+    // _floatingLabel中文字透明
+    this._floatingLabel.opacity = 0;
     this._floatingBox.style_class =
       "lyrics-floating-box lyrics-floating-box-empty";
+  }
+
+  _showLyrics() {
+    // 恢复
+    this._floatingLabel.opacity = 255;
+    this._floatingBox.style_class = "lyrics-floating-box";
   }
 
   _updateVisibility() {
@@ -309,16 +318,11 @@ export default class LyricsExtension extends Extension {
     const topBarVisible = this._isTopBarActuallyVisible();
     if (topBarVisible) {
       this._label.show();
-      // _floatingLabel中文字透明
-      this._floatingLabel.opacity = 0;
-      this._floatingBox.style_class =
-        "lyrics-floating-box lyrics-floating-box-empty";
+      this._clearLyrics();
       this._floatingBox.hide();
     } else {
       this._label.hide();
-      // 恢复
-      this._floatingLabel.opacity = 255;
-      this._floatingBox.style_class = "lyrics-floating-box";
+      this._showLyrics();
       this._floatingBox.show();
     }
   }
