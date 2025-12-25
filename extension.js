@@ -5,7 +5,6 @@ import Clutter from "gi://Clutter";
 
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
-import * as Mpris from "resource:///org/gnome/shell/ui/mpris.js";
 
 export default class LyricsExtension extends Extension {
   enable() {
@@ -23,8 +22,6 @@ export default class LyricsExtension extends Extension {
     Main.panel._leftBox.insert_child_at_index(this._label, 2);
     // === 新增：创建浮动胶囊 ===
     this._createFloatingLyrics();
-    this._mprisProxy = null;
-    this._mprisSignalId = null;
     // === 新增：监听 Top Bar 可见性 ===
 
     this._panelSignals = [];
@@ -64,7 +61,7 @@ export default class LyricsExtension extends Extension {
         return GLib.SOURCE_REMOVE;
       },
     );
-    GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+    this._idleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
       this._updateVisibility();
       return GLib.SOURCE_REMOVE;
     });
@@ -115,9 +112,13 @@ export default class LyricsExtension extends Extension {
       this._floatingBox = null;
       this._floatingLabel = null;
     }
-
+    if (this._idleId) {
+      GLib.source_remove(this._idleId);
+      this._idleId = null;
+    }
     if (this._process) {
       this._process.force_exit();
+      this._stream = null;
       this._process = null;
     }
 
@@ -129,11 +130,10 @@ export default class LyricsExtension extends Extension {
     St.ThemeContext.get_for_stage(global.stage)
       .get_theme()
       .unload_stylesheet(cssFile);
-    if (this._mprisProxy && this._mprisSignalId) {
-      this._mprisProxy.disconnect(this._mprisSignalId);
+    if (this._nameOwnerSubId) {
+      Gio.DBus.session.signal_unsubscribe(this._nameOwnerSubId);
+      this._nameOwnerSubId = null;
     }
-    this._mprisProxy = null;
-    this._mprisSignalId = null;
     if (this._mprisSubId) {
       Gio.DBus.session.signal_unsubscribe(this._mprisSubId);
       this._mprisSubId = null;
@@ -295,6 +295,8 @@ export default class LyricsExtension extends Extension {
   _clearLyrics() {
     if (this._label) this._label.set_text("");
     if (this._floatingLabel) this._floatingLabel.set_text("");
+    this._floatingBox.style_class =
+      "lyrics-floating-box lyrics-floating-box-empty";
   }
 
   _updateVisibility() {
@@ -307,9 +309,16 @@ export default class LyricsExtension extends Extension {
     const topBarVisible = this._isTopBarActuallyVisible();
     if (topBarVisible) {
       this._label.show();
+      // _floatingLabel中文字透明
+      this._floatingLabel.opacity = 0;
+      this._floatingBox.style_class =
+        "lyrics-floating-box lyrics-floating-box-empty";
       this._floatingBox.hide();
     } else {
       this._label.hide();
+      // 恢复
+      this._floatingLabel.opacity = 255;
+      this._floatingBox.style_class = "lyrics-floating-box";
       this._floatingBox.show();
     }
   }
