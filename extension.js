@@ -8,26 +8,22 @@ import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 
 export default class LyricsExtension extends Extension {
   enable() {
-    const cssFile = Gio.File.new_for_path(`${this.path}/stylesheet.css`);
-    St.ThemeContext.get_for_stage(global.stage)
-      .get_theme()
-      .load_stylesheet(cssFile);
+    this._destroyed = false;
+
     this._label = new St.Label({
       text: "",
       y_align: Clutter.ActorAlign.CENTER,
       style_class: "panel-status-menu-box",
     });
-    // 插入到左侧状态区
-
-    Main.panel._leftBox.insert_child_at_index(this._label, 2);
-    // === 新增：创建浮动胶囊 ===
+    const leftBox =
+      Main.panel?.statusArea?.aggregateMenu?.container ?? Main.panel?._leftBox;
+    if (leftBox) {
+      leftBox.insert_child_at_index(this._label, 2);
+    }
     this._createFloatingLyrics();
-    // === 新增：监听 Top Bar 可见性 ===
 
     this._panelSignals = [];
-
     const panelBox = Main.layoutManager.panelBox;
-
     this._panelSignals.push(
       panelBox.connect("notify::visible", () => this._updateVisibility()),
       panelBox.connect("notify::height", () => this._updateVisibility()),
@@ -36,10 +32,12 @@ export default class LyricsExtension extends Extension {
     );
 
     const overview = Main.overview;
-    const controls = Main.overview._overview.controls;
-    this._controlsSignals = controls.connect("notify::progress", () =>
-      this._updateVisibility(),
-    );
+    const controls = overview?._overview?.controls;
+    if (controls) {
+      this._controlsSignals = controls.connect("notify::progress", () =>
+        this._updateVisibility(),
+      );
+    }
 
     this._overviewSignals = [];
     this._overviewSignals = [
@@ -62,18 +60,20 @@ export default class LyricsExtension extends Extension {
       },
     );
     this._idleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+      if (this._destroyed) return GLib.SOURCE_REMOVE;
       this._updateVisibility();
       return GLib.SOURCE_REMOVE;
     });
 
-    this._startLyrics();
     this._enableMpris();
     this._enableMpris2();
     // 启动时主动查一次
     this._queryPlaybackStatus();
+    this._startLyrics();
   }
 
   disable() {
+    this._destroyed = true;
     if (this._panelSignals) {
       const panelBox = Main.layoutManager.panelBox;
       this._panelSignals.forEach((id) => {
@@ -119,19 +119,17 @@ export default class LyricsExtension extends Extension {
       this._idleId = null;
     }
     if (this._process) {
-      this._process.force_exit();
-      this._stream = null;
-      this._process = null;
+      try {
+        this._process.force_exit();
+      } catch {}
     }
+    this._stream = null;
+    this._process = null;
 
     if (this._label) {
       this._label.destroy();
       this._label = null;
     }
-    const cssFile = Gio.File.new_for_path(`${this.path}/stylesheet.css`);
-    St.ThemeContext.get_for_stage(global.stage)
-      .get_theme()
-      .unload_stylesheet(cssFile);
     if (this._nameOwnerSubId) {
       Gio.DBus.session.signal_unsubscribe(this._nameOwnerSubId);
       this._nameOwnerSubId = null;
@@ -141,7 +139,6 @@ export default class LyricsExtension extends Extension {
       this._mprisSubId = null;
     }
   }
-
   _enableMpris() {
     this._isPaused = false;
 
@@ -305,7 +302,6 @@ export default class LyricsExtension extends Extension {
   }
   _isTopBarActuallyVisible() {
     const controls = Main.overview?._overview?.controls;
-    this._queryPlaybackStatus();
     if (
       Main.overview._shown ||
       Main.overview.animationInProgress ||
@@ -313,11 +309,17 @@ export default class LyricsExtension extends Extension {
     ) {
       return true;
     }
-    const panelBox = Main.layoutManager.panelBox;
-    return panelBox.visible && panelBox.height > 0 && panelBox.opacity > 0;
+    const panelBox = Main.layoutManager?.panelBox;
+    return !!(
+      panelBox &&
+      panelBox.visible &&
+      panelBox.height > 0 &&
+      panelBox.opacity > 0
+    );
   }
   _clearLyrics() {
     // _floatingLabel中文字透明
+    if (!this._floatingLabel || this._floatingLabel.destroyed) return;
     this._floatingLabel.opacity = 0;
     this._floatingBox.style_class =
       "lyrics-floating-box lyrics-floating-box-empty";
@@ -330,6 +332,8 @@ export default class LyricsExtension extends Extension {
   }
 
   _updateVisibility() {
+    if (this._destroyed) return;
+    if (!this._floatingBox || !this._label) return;
     if (!this._hasPlayer || this._isPaused) {
       this._floatingBox.hide();
       this._label.hide();
@@ -386,17 +390,19 @@ export default class LyricsExtension extends Extension {
     this._floatingBox.set_y(40); // 顶部留白
     this._floatingBox.hide();
   }
-
   _readLine() {
+    if (!this._stream || this._destroyed) return;
+
     this._stream.read_line_async(GLib.PRIORITY_DEFAULT, null, (stream, res) => {
+      if (this._destroyed || stream !== this._stream) return;
       try {
         const [line] = stream.read_line_finish_utf8(res);
         if (line !== null) {
-          this._label.set_text(line);
-          this._floatingLabel.set_text(line);
+          this._label?.set_text(line);
+          this._floatingLabel?.set_text(line);
           this._readLine();
         }
-      } catch (e) {
+      } catch {
         // subprocess ended
       }
     });
