@@ -2,24 +2,54 @@ import Gio from "gi://Gio";
 import GLib from "gi://GLib";
 import St from "gi://St";
 import Clutter from "gi://Clutter";
-
+import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 
 export default class LyricsExtension extends Extension {
   enable() {
     this._destroyed = false;
+    this._floatingEnabled = true; // 用户开关
 
     this._label = new St.Label({
       text: "",
       y_align: Clutter.ActorAlign.CENTER,
       style_class: "panel-status-menu-box",
     });
+    this._button = new St.Button({
+      child: this._label,
+      reactive: true,
+      can_focus: true,
+      track_hover: true,
+    });
+
     const leftBox =
       Main.panel?.statusArea?.aggregateMenu?.container ?? Main.panel?._leftBox;
     if (leftBox) {
-      leftBox.insert_child_at_index(this._label, 2);
+      leftBox.insert_child_at_index(this._button, 2);
     }
+
+    this._menuManager = new PopupMenu.PopupMenuManager(this);
+    // 修改menu位置，起点不在中间，在最左边
+    this._menu = new PopupMenu.PopupMenu(this._button, 0.0, St.Side.TOP);
+    this._menuManager.addMenu(this._menu);
+    Main.uiGroup.add_child(this._menu.actor);
+    this._menu.actor.hide();
+    this._menu._boxPointer.setSourceAlignment(0.0);
+    this._menu.actor.set_x_align(Clutter.ActorAlign.START);
+    this._floatingToggleItem = new PopupMenu.PopupSwitchMenuItem(
+      "显示悬浮歌词",
+      this._floatingEnabled,
+    );
+    this._floatingToggleItem.connect("toggled", (_item, state) => {
+      this._floatingEnabled = state;
+      this._updateVisibility();
+    });
+    this._menu.addMenuItem(this._floatingToggleItem);
+    this._button.connect("clicked", () => {
+      this._menu.toggle();
+    });
+
     this._createFloatingLyrics();
 
     this._panelSignals = [];
@@ -125,7 +155,15 @@ export default class LyricsExtension extends Extension {
     }
     this._stream = null;
     this._process = null;
+    if (this._menu) {
+      this._menu.destroy();
+      this._menu = null;
+    }
 
+    if (this._button) {
+      this._button.destroy();
+      this._button = null;
+    }
     if (this._label) {
       this._label.destroy();
       this._label = null;
@@ -333,20 +371,26 @@ export default class LyricsExtension extends Extension {
 
   _updateVisibility() {
     if (this._destroyed) return;
-    if (!this._floatingBox || !this._label) return;
+    if (!this._floatingBox || !this._button) return;
+    if (!this._floatingEnabled) {
+      this._floatingBox.hide();
+      // panel 上的按钮仍然显示，便于再次开启
+      this._button.show();
+      return;
+    }
     if (!this._hasPlayer || this._isPaused) {
       this._floatingBox.hide();
-      this._label.hide();
+      this._button.hide();
       this._clearLyrics(); // 新增
       return;
     }
     const topBarVisible = this._isTopBarActuallyVisible();
     if (topBarVisible) {
-      this._label.show();
+      this._button.show();
       this._clearLyrics();
       this._floatingBox.hide();
     } else {
-      this._label.hide();
+      this._button.hide();
       this._showLyrics();
       this._floatingBox.show();
     }
