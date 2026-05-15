@@ -5,38 +5,28 @@ import Clutter from "gi://Clutter";
 import * as PopupMenu from "resource:///org/gnome/shell/ui/popupMenu.js";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
+import * as PanelMenu from "resource:///org/gnome/shell/ui/panelMenu.js";
 
 export default class LyricsExtension extends Extension {
   enable() {
     this._destroyed = false;
-    this._floatingEnabled = true; // 用户开关
+    this._floatingEnabled = true;
+
+    this._button = new PanelMenu.Button(0.0, "MyButton", false);
 
     this._label = new St.Label({
       text: "",
       y_align: Clutter.ActorAlign.CENTER,
-      style_class: "panel-status-menu-box",
-    });
-    this._button = new St.Button({
-      child: this._label,
-      reactive: true,
-      can_focus: true,
-      track_hover: true,
     });
 
-    const leftBox =
-      Main.panel?.statusArea?.aggregateMenu?.container ?? Main.panel?._leftBox;
-    if (leftBox) {
-      leftBox.insert_child_at_index(this._button, 2);
-    }
+    this._button.add_child(this._label);
 
-    this._menuManager = new PopupMenu.PopupMenuManager(this);
-    // 修改menu位置，起点不在中间，在最左边
-    this._menu = new PopupMenu.PopupMenu(this._button, 0.0, St.Side.TOP);
-    this._menuManager.addMenu(this._menu);
-    Main.uiGroup.add_child(this._menu.actor);
-    this._menu.actor.hide();
-    this._menu._boxPointer.setSourceAlignment(0.0);
-    this._menu.actor.set_x_align(Clutter.ActorAlign.START);
+    Main.panel.addToStatusArea("my-button", this._button);
+
+    // menu 对齐
+    this._button.menu._boxPointer.setSourceAlignment(0.0);
+    this._button.menu.actor.set_x_align(Clutter.ActorAlign.START);
+
     this._floatingToggleItem = new PopupMenu.PopupSwitchMenuItem(
       "显示悬浮歌词",
       this._floatingEnabled,
@@ -45,10 +35,8 @@ export default class LyricsExtension extends Extension {
       this._floatingEnabled = state;
       this._updateVisibility();
     });
-    this._menu.addMenuItem(this._floatingToggleItem);
-    this._button.connect("clicked", () => {
-      this._menu.toggle();
-    });
+
+    this._button.menu.addMenuItem(this._floatingToggleItem);
 
     this._createFloatingLyrics();
 
@@ -69,7 +57,6 @@ export default class LyricsExtension extends Extension {
       );
     }
 
-    this._overviewSignals = [];
     this._overviewSignals = [
       overview.connect("showing", () => this._updateVisibility()),
       overview.connect("hiding", () => this._updateVisibility()),
@@ -77,12 +64,9 @@ export default class LyricsExtension extends Extension {
       overview.connect("hidden", () => this._updateVisibility()),
     ];
 
-    // Shell 启动完成后再做首次判断
-
     this._startupTimeoutId = GLib.timeout_add(
       GLib.PRIORITY_DEFAULT,
       500,
-      // 500ms 是实践中比较稳的值
       () => {
         this._updateVisibility();
         this._startupTimeoutId = null;
@@ -97,7 +81,7 @@ export default class LyricsExtension extends Extension {
 
     this._enableMpris();
     this._enableMpris2();
-    // 启动时主动查一次
+
     this._queryPlaybackStatus();
     this._startLyrics();
   }
