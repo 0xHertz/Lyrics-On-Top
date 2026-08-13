@@ -12,7 +12,15 @@
 
   ![image-20251223075045943](https://raw.githubusercontent.com/0xHertz/img/main/imgimage-20251223075045943.png)
 
-* 将本项目下载并保存在gnome扩展文件夹中
+* 安装扩展
+
+  建议使用安装脚本
+
+  ```shell
+  ./install.sh
+  ```
+
+  或者也可以手动安装，将本项目下载并保存在gnome扩展文件夹中
 
   ```
   ~/.local/share/gnome-shell/extensions/
@@ -21,7 +29,7 @@
   > 确保文件夹名称与`metadata.json`中uuid一致
 
   ```
-  lyric-on-topbar@gnome.com
+  lyrics-on-topbar@gnome.com
   ```
 
 * 完成，开始享用
