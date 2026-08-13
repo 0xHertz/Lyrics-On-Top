@@ -7,10 +7,34 @@ import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 import * as PanelMenu from "resource:///org/gnome/shell/ui/panelMenu.js";
 
+const MPRIS_PREFIX = "org.mpris.MediaPlayer2.";
+
 export default class LyricsExtension extends Extension {
   enable() {
     this._destroyed = false;
-    this._floatingEnabled = true;
+
+    this._settings = this.getSettings();
+    this._playerName = this._settings.get_string("player-name");
+    this._floatingEnabled = this._settings.get_boolean("show-floating");
+
+    this._settingsSignals = [
+      this._settings.connect("changed::player-name", () => {
+        this._playerName = this._settings.get_string("player-name");
+        this._resetPlaybackState();
+        this._queryPlaybackStatus();
+        this._updateVisibility();
+      }),
+      this._settings.connect("changed::show-floating", () => {
+        this._floatingEnabled = this._settings.get_boolean("show-floating");
+        if (
+          this._floatingToggleItem &&
+          this._floatingToggleItem.state !== this._floatingEnabled
+        ) {
+          this._floatingToggleItem.setToggleState(this._floatingEnabled);
+        }
+        this._updateVisibility();
+      }),
+    ];
 
     this._button = new PanelMenu.Button(0.0, "MyButton", false);
 
@@ -33,6 +57,9 @@ export default class LyricsExtension extends Extension {
     );
     this._floatingToggleItem.connect("toggled", (_item, state) => {
       this._floatingEnabled = state;
+      if (this._settings.get_boolean("show-floating") !== state) {
+        this._settings.set_boolean("show-floating", state);
+      }
       this._updateVisibility();
     });
 
@@ -160,6 +187,17 @@ export default class LyricsExtension extends Extension {
       Gio.DBus.session.signal_unsubscribe(this._mprisSubId);
       this._mprisSubId = null;
     }
+    if (this._settingsSignals) {
+      this._settingsSignals.forEach((id) => {
+        try {
+          this._settings.disconnect(id);
+        } catch (e) {
+          // signal 已不存在，忽略
+        }
+      });
+      this._settingsSignals = null;
+    }
+    this._settings = null;
   }
   _enableMpris() {
     this._isPaused = false;
@@ -171,7 +209,8 @@ export default class LyricsExtension extends Extension {
       "/org/mpris/MediaPlayer2",
       null,
       Gio.DBusSignalFlags.NONE,
-      (_conn, _sender, _path, _iface, _signal, params) => {
+      (_conn, sender, _path, _iface, _signal, params) => {
+        if (!this._isSelectedPlayer(sender)) return;
         try {
           const [iface, changed] = params.deep_unpack();
 
@@ -201,7 +240,8 @@ export default class LyricsExtension extends Extension {
       Gio.DBusSignalFlags.NONE,
       (_conn, _sender, _path, _iface, _signal, params) => {
         const [name, oldOwner, newOwner] = params.deep_unpack();
-        if (!name.startsWith("org.mpris.MediaPlayer2.")) return;
+        if (!name.startsWith(MPRIS_PREFIX)) return;
+        if (!this._isSelectedPlayer(name)) return;
 
         if (newOwner) {
           // 新播放器启动
@@ -260,8 +300,8 @@ export default class LyricsExtension extends Extension {
           const ret = conn.call_finish(res);
           const [names] = ret.deep_unpack();
 
-          const players = names.filter((n) =>
-            n.startsWith("org.mpris.MediaPlayer2."),
+          const players = names.filter(
+            (n) => n.startsWith(MPRIS_PREFIX) && this._isSelectedPlayer(n),
           );
 
           for (const busName of players) {
@@ -302,6 +342,17 @@ export default class LyricsExtension extends Extension {
       this._isPaused = paused;
       this._updateVisibility();
     }
+  }
+
+  _isSelectedPlayer(busName) {
+    if (this._playerName === "") return true;
+    return busName === MPRIS_PREFIX + this._playerName;
+  }
+
+  _resetPlaybackState() {
+    this._hasPlayer = false;
+    this._playerNums = 0;
+    this._isPaused = false;
   }
 
   _startLyrics() {

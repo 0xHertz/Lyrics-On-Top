@@ -4,5 +4,6 @@
   "description": "Display sptlrx lyrics in GNOME top bar",
   "version": 1,
   "shell-version": ["46", "47", "48"],
+  "settings-schema": "org.gnome.shell.extensions.lyrics-on-topbar",
   "url": "https://LyricsOnTop.com"
 }

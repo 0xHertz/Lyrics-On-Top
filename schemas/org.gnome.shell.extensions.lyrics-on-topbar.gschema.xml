@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.lyrics-on-topbar"
+          path="/org/gnome/shell/extensions/lyrics-on-topbar/">
+    <key name="player-name" type="s">
+      <default>''</default>
+      <summary>MPRIS 播放器名称</summary>
+      <description>
+        仅监听该 MPRIS 播放器（总线名后缀，如 spotify、vlc）。空字符串表示所有播放器。
+      </description>
+    </key>
+    <key name="show-floating" type="b">
+      <default>true</default>
+      <summary>显示悬浮歌词</summary>
+      <description>顶栏隐藏时是否显示悬浮歌词。</description>
+    </key>
+  </schema>
+</schemalist>
