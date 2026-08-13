@@ -16,6 +16,7 @@ export default class LyricsExtension extends Extension {
     this._settings = this.getSettings();
     this._playerName = this._settings.get_string("player-name");
     this._floatingEnabled = this._settings.get_boolean("show-floating");
+    this._ownerToName = new Map();
 
     this._settingsSignals = [
       this._settings.connect("changed::player-name", () => {
@@ -241,6 +242,13 @@ export default class LyricsExtension extends Extension {
       (_conn, _sender, _path, _iface, _signal, params) => {
         const [name, oldOwner, newOwner] = params.deep_unpack();
         if (!name.startsWith(MPRIS_PREFIX)) return;
+
+        if (newOwner) {
+          this._ownerToName.set(newOwner, name);
+        } else {
+          this._ownerToName.delete(oldOwner);
+        }
+
         if (!this._isSelectedPlayer(name)) return;
 
         if (newOwner) {
@@ -307,6 +315,7 @@ export default class LyricsExtension extends Extension {
           for (const busName of players) {
             this._hasPlayer = true;
             this._playerNums = this._playerNums + 1;
+            this._trackNameOwner(busName);
             Gio.DBus.session.call(
               busName,
               "/org/mpris/MediaPlayer2",
@@ -346,13 +355,36 @@ export default class LyricsExtension extends Extension {
 
   _isSelectedPlayer(busName) {
     if (this._playerName === "") return true;
-    return busName === MPRIS_PREFIX + this._playerName;
+    const target = MPRIS_PREFIX + this._playerName;
+    if (busName === target) return true;
+    return this._ownerToName.get(busName) === target;
   }
 
   _resetPlaybackState() {
     this._hasPlayer = false;
     this._playerNums = 0;
     this._isPaused = false;
+  }
+
+  _trackNameOwner(busName) {
+    Gio.DBus.session.call(
+      "org.freedesktop.DBus",
+      "/org/freedesktop/DBus",
+      "org.freedesktop.DBus",
+      "GetNameOwner",
+      new GLib.Variant("(s)", [busName]),
+      null,
+      Gio.DBusCallFlags.NONE,
+      -1,
+      null,
+      (c, r) => {
+        try {
+          const v = c.call_finish(r);
+          const owner = v.deep_unpack()[0];
+          this._ownerToName.set(owner, busName);
+        } catch {}
+      },
+    );
   }
 
   _startLyrics() {
