@@ -14,5 +14,70 @@
       <summary>显示悬浮歌词</summary>
       <description>顶栏隐藏时是否显示悬浮歌词。</description>
     </key>
+    <key name="show-desktop" type="b">
+      <default>true</default>
+      <summary>显示桌面滚动歌词</summary>
+      <description>在桌面顶层显示类似 Apple Music 的滚动歌词窗口。</description>
+    </key>
+    <key name="lyric-source" type="s">
+      <default>'sptlrx'</default>
+      <summary>歌词来源</summary>
+      <description>桌面歌词的数据来源。可选值：sptlrx（默认，来自 sptlrx pipe --json 的完整歌词时间轴，支持前后行）、lrclib（在线搜索完整歌词时间轴）。</description>
+    </key>
+    <key name="desktop-font" type="s">
+      <default>'Sans'</default>
+      <summary>歌词字体</summary>
+      <description>桌面歌词窗口使用的字体族名称。</description>
+    </key>
+    <key name="desktop-font-size" type="i">
+      <default>24</default>
+      <summary>歌词字号</summary>
+      <description>桌面歌词的字号（单位：pt）。</description>
+    </key>
+    <key name="desktop-color" type="s">
+      <default>'#ffffff'</default>
+      <summary>歌词颜色</summary>
+      <description>桌面歌词的文字颜色（十六进制，如 #ffffff）。</description>
+    </key>
+    <key name="desktop-opacity" type="d">
+      <default>1.0</default>
+      <summary>歌词透明度</summary>
+      <description>桌面歌词窗口的整体不透明度，范围 0.0（完全透明）到 1.0（完全不透明）。</description>
+    </key>
+    <key name="desktop-position" type="s">
+      <default>'center'</default>
+      <summary>歌词位置</summary>
+      <description>桌面歌词在屏幕上的位置。可选值：top-left, top-center, top-right, center-left, center, center-right, bottom-left, bottom-center, bottom-right。</description>
+    </key>
+    <key name="desktop-always-on-top" type="b">
+      <default>true</default>
+      <summary>歌词置顶</summary>
+      <description>歌词是否始终显示在所有窗口之上。</description>
+    </key>
+    <key name="desktop-align" type="s">
+      <default>'center'</default>
+      <summary>歌词对齐方式</summary>
+      <description>歌词文本的对齐方式。可选值：left, center, right。</description>
+    </key>
+    <key name="desktop-lines-before" type="i">
+      <default>2</default>
+      <summary>当前歌词前几行</summary>
+      <description>当前歌词之前显示的行数。</description>
+    </key>
+    <key name="desktop-lines-after" type="i">
+      <default>2</default>
+      <summary>当前歌词后几行</summary>
+      <description>当前歌词之后显示的行数。</description>
+    </key>
+    <key name="desktop-offset-x" type="i">
+      <default>0</default>
+      <summary>歌词水平偏移</summary>
+      <description>歌词窗口在屏幕上的水平像素偏移。</description>
+    </key>
+    <key name="desktop-offset-y" type="i">
+      <default>0</default>
+      <summary>歌词垂直偏移</summary>
+      <description>歌词窗口在屏幕上的垂直像素偏移。</description>
+    </key>
   </schema>
 </schemalist>

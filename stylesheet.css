@@ -20,3 +20,16 @@
     border-radius: 999px;
     padding: 6px 14px;
 }
+
+.lyrics-desktop-box {
+    spacing: 0;
+}
+
+.lyrics-desktop-label {
+    font-weight: 400;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.lyrics-desktop-current {
+    font-weight: 700;
+}
