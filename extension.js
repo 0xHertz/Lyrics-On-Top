@@ -36,6 +36,8 @@ export default class LyricsExtension extends Extension {
     // 桌面滚动歌词状态
     this._desktopLines = [];
     this._desktopIndex = -1;
+    this._desktopScrollPosition = -1;
+    this._desktopScrollSourceId = null;
     this._desktopTrackKey = null;
     this._activeBusName = null;
     this._positionMs = 0;
@@ -992,6 +994,10 @@ export default class LyricsExtension extends Extension {
       });
       this._stageSignals = null;
     }
+    if (this._desktopScrollSourceId) {
+      GLib.source_remove(this._desktopScrollSourceId);
+      this._desktopScrollSourceId = null;
+    }
     if (this._desktopBox) {
       this._desktopBox.destroy();
       this._desktopBox = null;
@@ -1020,11 +1026,14 @@ export default class LyricsExtension extends Extension {
     this._desktopLabels = [];
     const total = this._linesBefore + 1 + this._linesAfter;
     for (let i = 0; i < total; i++) {
+      const rowHeight = Math.max(24, this._desktopFontSize * 1.65);
       const label = new St.Label({
         text: "",
         style_class: "lyrics-desktop-label",
         x_expand: true,
         x_align: Clutter.ActorAlign.FILL,
+        y_align: Clutter.ActorAlign.CENTER,
+        height: rowHeight,
         reactive: false,
       });
       this._desktopLabels.push(label);
@@ -1044,35 +1053,77 @@ export default class LyricsExtension extends Extension {
 
   _renderDesktopLyrics() {
     if (!this._desktopBox || !this._desktopLabels) return;
+
+    // iShowLyrics-style scrolling: animate a fractional lyric index, then draw
+    // every visible line relative to that moving position. This moves the whole
+    // lyric stack continuously instead of fading one line out and another in.
+    if (this._desktopScrollPosition < 0 || !Number.isFinite(this._desktopScrollPosition)) {
+      this._desktopScrollPosition = Math.max(0, this._desktopIndex);
+    }
+    const target = Math.max(0, this._desktopIndex);
+    const delta = target - this._desktopScrollPosition;
+    if (Math.abs(delta) > 0.002) {
+      // Exponential easing matches iShowLyrics' frame-rate-independent scroll.
+      this._desktopScrollPosition += delta * (1 - Math.exp(-9 * 0.016));
+      if (Math.abs(target - this._desktopScrollPosition) < 0.015) {
+        this._desktopScrollPosition = target;
+      }
+      if (!this._desktopScrollSourceId) {
+        this._desktopScrollSourceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 16, () => {
+          this._desktopScrollSourceId = null;
+          if (this._destroyed || !this._desktopBox || !this._desktopLabels) return GLib.SOURCE_REMOVE;
+          this._renderDesktopLyrics();
+          return GLib.SOURCE_REMOVE;
+        });
+      }
+    }
+
     const center = this._linesBefore;
+    const scrollPos = this._desktopScrollPosition;
+    // Anchor the label window to the next row while moving forward. Using
+    // ceil() with a negative fractional offset is geometrically equivalent to
+    // floor() with a positive offset, but it makes the incoming row available
+    // immediately instead of waiting for the animation to reach an integer.
+    const baseIndex = Math.ceil(scrollPos);
+    const fraction = scrollPos - baseIndex;
     const alignCss =
       this._desktopAlign === "left" || this._desktopAlign === "right"
         ? this._desktopAlign
         : "center";
+
+    // Translate by the fractional part between two lyric rows. At an index
+    // boundary, the visible labels are remapped by one row while this offset
+    // wraps to zero, keeping the text in continuous motion.
+    const rowHeight = Math.max(24, this._desktopFontSize * 1.65);
+    this._desktopBox.translation_y = -fraction * rowHeight;
+
     for (let i = 0; i < this._desktopLabels.length; i++) {
       const label = this._desktopLabels[i];
-      const lineIdx = this._desktopIndex - center + i;
-      const dist = Math.abs(i - center);
+      // Keep every row's allocation fixed. If row height follows the changing
+      // font size, the box's natural height changes during scrolling and the
+      // next lyric can pop into view only after the animation settles.
+      if (label.height !== rowHeight) label.set_height(rowHeight);
+      const lineIdx = baseIndex - center + i;
+      const dist = Math.abs(lineIdx - scrollPos);
       if (lineIdx < 0 || lineIdx >= this._desktopLines.length) {
         label.text = "";
         label.opacity = 0;
         label.remove_style_class_name("lyrics-desktop-current");
       } else {
         label.text = this._desktopLines[lineIdx].text;
-        const sizeScale = Math.max(0.55, Math.pow(0.8, dist));
+        // Base typography on the selected lyric index, not the label's fixed
+        // slot. This keeps the font scale symmetric above and below the active
+        // lyric while the label window moves continuously.
+        const styleDist = Math.abs(lineIdx - target);
+        const sizeScale = Math.max(0.55, Math.pow(0.8, styleDist));
         const size = this._desktopFontSize * sizeScale;
-        const gapScale = Math.max(0.3, Math.pow(0.5, dist));
-        const gap = this._desktopFontSize * 0.07 * gapScale;
-        label.style = `font-family: ${this._desktopFont}; font-size: ${size.toFixed(1)}pt; color: ${this._desktopColor}; text-align: ${alignCss}; margin-top: ${gap.toFixed(1)}px; margin-bottom: ${gap.toFixed(1)}px;`;
-        if (dist === 0) {
-          label.opacity = 255;
+        label.style = `font-family: ${this._desktopFont}; font-size: ${size.toFixed(1)}pt; color: ${this._desktopColor}; text-align: ${alignCss};`;
+        if (dist < 0.5) {
           label.add_style_class_name("lyrics-desktop-current");
         } else {
           label.remove_style_class_name("lyrics-desktop-current");
-          label.opacity = Math.round(
-            255 * Math.max(0.35, Math.pow(0.7, dist)),
-          );
         }
+        label.opacity = Math.round(255 * Math.max(0.12, Math.pow(0.7, styleDist)));
       }
     }
     this._positionDesktop();
