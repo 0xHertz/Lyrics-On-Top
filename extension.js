@@ -333,6 +333,7 @@ export default class LyricsExtension extends Extension {
       case "desktop-font-size":
       case "desktop-color":
       case "desktop-align":
+        this._updateDesktopLabelsStyle();
         this._renderDesktopLyrics();
         break;
       case "desktop-opacity":
@@ -647,7 +648,7 @@ export default class LyricsExtension extends Extension {
 
     this._positionMs = 0;
     this._desktopIndex = -1;
-    this._fetchLyrics(title, artist, album);
+    this._fetchLyrics(title, artist);
   }
 
   _fetchLyrics(title, artist) {
@@ -819,7 +820,6 @@ export default class LyricsExtension extends Extension {
     );
   }
   _clearLyrics() {
-    // _floatingLabel中文字透明
     if (!this._floatingLabel || this._floatingLabel.destroyed) return;
     this._floatingLabel.opacity = 0;
     this._floatingBox.style_class =
@@ -827,7 +827,6 @@ export default class LyricsExtension extends Extension {
   }
 
   _showLyrics() {
-    // 恢复
     this._floatingLabel.opacity = 255;
     this._floatingBox.style_class = "lyrics-floating-box";
   }
@@ -837,12 +836,11 @@ export default class LyricsExtension extends Extension {
     if (!this._floatingBox || !this._button) return;
     if (!this._floatingEnabled) {
       this._floatingBox.hide();
-      // panel 上的按钮仍然显示，便于再次开启
       this._button.show();
     } else if (!this._hasPlayer || this._isPaused) {
       this._floatingBox.hide();
       this._button.hide();
-      this._clearLyrics(); // 新增
+      this._clearLyrics();
     } else {
       const topBarVisible = this._isTopBarActuallyVisible();
       if (topBarVisible) {
@@ -871,21 +869,21 @@ export default class LyricsExtension extends Extension {
       y_align: Clutter.ActorAlign.START,
     });
 
-    this._floatingBox.add_child(this._floatingLabel); // === 关键：对齐约束（水平居中） ===
+    this._floatingBox.add_child(this._floatingLabel);
 
     this._floatingBox.add_constraint(
       new Clutter.AlignConstraint({
         source: global.stage,
         align_axis: Clutter.AlignAxis.X_AXIS,
-        factor: 0.5, // 屏幕中点
+        factor: 0.5,
       }),
-    ); // === 顶部对齐 ===
+    );
 
     this._floatingBox.add_constraint(
       new Clutter.AlignConstraint({
         source: global.stage,
         align_axis: Clutter.AlignAxis.Y_AXIS,
-        factor: 0.0, // 顶部
+        factor: 0.0,
       }),
     );
 
@@ -894,7 +892,7 @@ export default class LyricsExtension extends Extension {
       trackFullscreen: true,
     });
 
-    this._floatingBox.set_y(40); // 顶部留白
+    this._floatingBox.set_y(40);
     this._floatingBox.hide();
   }
   _readLine() {
@@ -948,7 +946,7 @@ export default class LyricsExtension extends Extension {
     }
   }
 
-  // ============ 桌面滚动歌词（新） ============
+  // ============ 桌面滚动歌词 ============
 
   _onSptlrxLine(line) {
     if (this._lyricSource !== "sptlrx") return;
@@ -988,9 +986,7 @@ export default class LyricsExtension extends Extension {
       this._stageSignals.forEach((id) => {
         try {
           global.stage.disconnect(id);
-        } catch (e) {
-          // 忽略
-        }
+        } catch (e) {}
       });
       this._stageSignals = null;
     }
@@ -1021,26 +1017,57 @@ export default class LyricsExtension extends Extension {
   _rebuildDesktopLabels() {
     if (!this._desktopBox) return;
     if (this._desktopLabels) {
-      for (const l of this._desktopLabels) l.destroy();
+      for (const label of this._desktopLabels) {
+        const row = label.get_parent();
+        if (row) row.destroy();
+        else label.destroy();
+      }
     }
     this._desktopLabels = [];
     const total = this._linesBefore + 1 + this._linesAfter;
     for (let i = 0; i < total; i++) {
       const rowHeight = Math.max(24, this._desktopFontSize * 1.65);
+      const row = new St.Widget({
+        style_class: "lyrics-desktop-row",
+        layout_manager: new Clutter.BinLayout(),
+        x_expand: true,
+        x_align: Clutter.ActorAlign.FILL,
+        height: rowHeight,
+        reactive: false,
+      });
       const label = new St.Label({
         text: "",
         style_class: "lyrics-desktop-label",
         x_expand: true,
         x_align: Clutter.ActorAlign.FILL,
         y_align: Clutter.ActorAlign.CENTER,
-        height: rowHeight,
         reactive: false,
       });
+      row.add_child(label);
       this._desktopLabels.push(label);
-      this._desktopBox.add_child(label);
+      this._desktopBox.add_child(row);
     }
     this._applyDesktopStyle();
+    this._updateDesktopLabelsStyle();
     this._renderDesktopLyrics();
+  }
+
+  _updateDesktopLabelsStyle() {
+    if (!this._desktopLabels) return;
+    const alignCss =
+      this._desktopAlign === "left" || this._desktopAlign === "right"
+        ? this._desktopAlign
+        : "center";
+
+    let pivotX = 0.5;
+    if (this._desktopAlign === "left") pivotX = 0;
+    else if (this._desktopAlign === "right") pivotX = 1;
+
+    for (const label of this._desktopLabels) {
+      // 基础样式只在初始化或设置变更时应用一次，不在每帧动画中修改 font-size
+      label.style = `font-family: ${this._desktopFont}; font-size: ${this._desktopFontSize}pt; color: ${this._desktopColor}; text-align: ${alignCss};`;
+      label.set_pivot_point(pivotX, 0.5);
+    }
   }
 
   _applyDesktopStyle() {
@@ -1054,16 +1081,12 @@ export default class LyricsExtension extends Extension {
   _renderDesktopLyrics() {
     if (!this._desktopBox || !this._desktopLabels) return;
 
-    // iShowLyrics-style scrolling: animate a fractional lyric index, then draw
-    // every visible line relative to that moving position. This moves the whole
-    // lyric stack continuously instead of fading one line out and another in.
     if (this._desktopScrollPosition < 0 || !Number.isFinite(this._desktopScrollPosition)) {
       this._desktopScrollPosition = Math.max(0, this._desktopIndex);
     }
     const target = Math.max(0, this._desktopIndex);
     const delta = target - this._desktopScrollPosition;
     if (Math.abs(delta) > 0.002) {
-      // Exponential easing matches iShowLyrics' frame-rate-independent scroll.
       this._desktopScrollPosition += delta * (1 - Math.exp(-9 * 0.016));
       if (Math.abs(target - this._desktopScrollPosition) < 0.015) {
         this._desktopScrollPosition = target;
@@ -1080,44 +1103,34 @@ export default class LyricsExtension extends Extension {
 
     const center = this._linesBefore;
     const scrollPos = this._desktopScrollPosition;
-    // Anchor the label window to the next row while moving forward. Using
-    // ceil() with a negative fractional offset is geometrically equivalent to
-    // floor() with a positive offset, but it makes the incoming row available
-    // immediately instead of waiting for the animation to reach an integer.
     const baseIndex = Math.ceil(scrollPos);
     const fraction = scrollPos - baseIndex;
-    const alignCss =
-      this._desktopAlign === "left" || this._desktopAlign === "right"
-        ? this._desktopAlign
-        : "center";
 
-    // Translate by the fractional part between two lyric rows. At an index
-    // boundary, the visible labels are remapped by one row while this offset
-    // wraps to zero, keeping the text in continuous motion.
     const rowHeight = Math.max(24, this._desktopFontSize * 1.65);
     this._desktopBox.translation_y = -fraction * rowHeight;
 
     for (let i = 0; i < this._desktopLabels.length; i++) {
       const label = this._desktopLabels[i];
-      // Keep every row's allocation fixed. If row height follows the changing
-      // font size, the box's natural height changes during scrolling and the
-      // next lyric can pop into view only after the animation settles.
-      if (label.height !== rowHeight) label.set_height(rowHeight);
+      const row = label.get_parent();
+      if (row && row.height !== rowHeight) row.set_height(rowHeight);
       const lineIdx = baseIndex - center + i;
       const dist = Math.abs(lineIdx - scrollPos);
       if (lineIdx < 0 || lineIdx >= this._desktopLines.length) {
         label.text = "";
         label.opacity = 0;
+        label.scale_x = 1;
+        label.scale_y = 1;
         label.remove_style_class_name("lyrics-desktop-current");
       } else {
         label.text = this._desktopLines[lineIdx].text;
-        // Base typography on the selected lyric index, not the label's fixed
-        // slot. This keeps the font scale symmetric above and below the active
-        // lyric while the label window moves continuously.
-        const styleDist = Math.abs(lineIdx - target);
+        const styleDist = Math.abs(lineIdx - scrollPos);
         const sizeScale = Math.max(0.55, Math.pow(0.8, styleDist));
-        const size = this._desktopFontSize * sizeScale;
-        label.style = `font-family: ${this._desktopFont}; font-size: ${size.toFixed(1)}pt; color: ${this._desktopColor}; text-align: ${alignCss};`;
+        
+        // 【核心修改】使用 Clutter 的原生 scale 属性代替修改 inline style 的 font-size。
+        // GPU 直接缩放纹理，不触发 CSS 重新解析与布局重排，动画丝滑无卡顿。
+        label.scale_x = sizeScale;
+        label.scale_y = sizeScale;
+
         if (dist < 0.5) {
           label.add_style_class_name("lyrics-desktop-current");
         } else {
